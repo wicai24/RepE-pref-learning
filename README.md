@@ -1,7 +1,7 @@
-# Run experiments on CAIS Cluster
+## Instructions
 
 1. **Adjust Training Settings**:  
-   Edit the training parameters in `code/run.sh` as needed.
+   Edit training parameters directly in the `train_job.sbatch` script if needed.
 
 2. **Run the Job**:  
    Submit the job using the following command:
