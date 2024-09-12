@@ -11,4 +11,10 @@ conda activate /data/will_cai/wicai24/ENTER/envs/repe_env
 
 cd /data/will_cai/wicai24/RepE-pref-learning/code
 
-bash run.sh
+python prefix_tuning.py \
+    --model_path "../model/SFT/final_checkpoint" \
+    --data_path "../data/ultrafeedback/rm" \
+    --output_dir "../model/DPO/input_tuning_prefix_MSE_retain" \
+    --use_neg True \
+    --use_retain True \
+    --use_cosine False
