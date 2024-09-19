@@ -11,7 +11,7 @@ PREFIX_LENGTH = 10
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Define the PrefixModel class
+# PrefixModel class
 class PrefixModel(nn.Module):
     def __init__(self, base_model, prefix_length=PREFIX_LENGTH):
         super().__init__()
@@ -38,12 +38,13 @@ class PrefixModel(nn.Module):
         )
         return outputs
 
-# Load model
+# Load the base model
 model_path = "/data/will_cai/wicai24/RepE-pref-learning/model/SFT/final_checkpoint"
 base_model = AutoModelForCausalLM.from_pretrained(
     model_path, torch_dtype=torch.bfloat16
 ).to(device)
 
+# Load prefix layers
 model_pos = PrefixModel(base_model).to(device)
 model_neg = PrefixModel(base_model).to(device)
 
@@ -59,17 +60,18 @@ tokenizer.pad_token_id = tokenizer.eos_token_id
 data_path = "../data/ultrafeedback/rm"
 ultrafeedback_dataset = load_from_disk(data_path)
 
-top_300_examples = ultrafeedback_dataset.select(range(300))
+# Select the top 300 samples
+top_300_data = ultrafeedback_dataset.select(range(300))
 
-def process_example(example, tokenizer):
+def process_data_point(data_point, tokenizer):
     template = "\n\nHuman: {user_content}\n\nAssistant: {assistant_content}"
-    user_content = example["chosen"][0]["content"]
-    assistant_content_chosen = example["chosen"][1]["content"]
+    user_content = data_point["chosen"][0]["content"]
+    assistant_content_chosen = data_point["chosen"][1]["content"]
 
     full_text_chosen = template.format(
         user_content=user_content, assistant_content=assistant_content_chosen
     )
-    pos_tokens = tokenizer(
+    tokens = tokenizer(
         full_text_chosen,
         return_tensors="pt",
         padding="max_length",
@@ -77,8 +79,8 @@ def process_example(example, tokenizer):
         max_length=MAX_LENGTH,
     )
 
-    input_ids = pos_tokens["input_ids"].squeeze(0).to(device)
-    attention_mask = pos_tokens["attention_mask"].squeeze(0).to(device)
+    input_ids = tokens["input_ids"].squeeze(0).to(device)
+    attention_mask = tokens["attention_mask"].squeeze(0).to(device)
     return input_ids, attention_mask
 
 # Function to get prefix embeddings
@@ -107,36 +109,38 @@ def embeddings_to_tokens(prefix_embeds, model, tokenizer, top_k=1):
         tokens_list.append(tokens)
     return tokens_list
 
-output_dir = "prefix_outputs"
-os.makedirs(output_dir, exist_ok=True)
+# Prepare lists to collect tokens
+pos_tokens_all = []
+neg_tokens_all = []
 
-for idx, example in enumerate(top_300_examples):
-    input_ids, attention_mask = process_example(example, tokenizer)
+for idx, data_point in enumerate(top_300_data):
+    input_ids, attention_mask = process_data_point(data_point, tokenizer)
     input_ids = input_ids.unsqueeze(0)
     attention_mask = attention_mask.unsqueeze(0)
 
     with torch.no_grad():
+        # Positive model
         prefix_embeds_pos = get_prefix_embeddings(model_pos, input_ids)
-    prefix_np_pos = prefix_embeds_pos.to(torch.float32).cpu().numpy().squeeze(0)
-    output_path_pos = os.path.join(output_dir, f"{idx}_prefix_pos.npy")
-    np.save(output_path_pos, prefix_np_pos)
+        tokens_pos = embeddings_to_tokens(prefix_embeds_pos, model_pos, tokenizer)
+        tokens_pos_flat = [token[0] for token in tokens_pos]
+        pos_tokens_all.append(tokens_pos_flat)
 
-    tokens_pos = embeddings_to_tokens(prefix_embeds_pos, model_pos, tokenizer)
-    tokens_pos_flat = [token[0] for token in tokens_pos]
-    output_tokens_pos_path = os.path.join(output_dir, f"{idx}_prefix_pos_tokens.txt")
-    with open(output_tokens_pos_path, "w", encoding="utf-8") as f:
-        f.write(" ".join(tokens_pos_flat))
-
-    with torch.no_grad():
+        # Negative model
         prefix_embeds_neg = get_prefix_embeddings(model_neg, input_ids)
-    prefix_np_neg = prefix_embeds_neg.to(torch.float32).cpu().numpy().squeeze(0)
-    output_path_neg = os.path.join(output_dir, f"{idx}_prefix_neg.npy")
-    np.save(output_path_neg, prefix_np_neg)
+        tokens_neg = embeddings_to_tokens(prefix_embeds_neg, model_neg, tokenizer)
+        tokens_neg_flat = [token[0] for token in tokens_neg]
+        neg_tokens_all.append(tokens_neg_flat)
 
-    tokens_neg = embeddings_to_tokens(prefix_embeds_neg, model_neg, tokenizer)
-    tokens_neg_flat = [token[0] for token in tokens_neg]
-    output_tokens_neg_path = os.path.join(output_dir, f"{idx}_prefix_neg_tokens.txt")
-    with open(output_tokens_neg_path, "w", encoding="utf-8") as f:
-        f.write(" ".join(tokens_neg_flat))
+# Save all tokens into one file
+output_dir = "prefix_outputs"
+os.makedirs(output_dir, exist_ok=True)
 
-print("Prefixes saved.")
+output_tokens_pos_path = os.path.join(output_dir, "all_prefix_pos_tokens.txt")
+with open(output_tokens_pos_path, "w", encoding="utf-8") as f:
+    for tokens in pos_tokens_all:
+        f.write(" ".join(tokens) + "\n")
+
+output_tokens_neg_path = os.path.join(output_dir, "all_prefix_neg_tokens.txt")
+with open(output_tokens_neg_path, "w", encoding="utf-8") as f:
+    for tokens in neg_tokens_all:
+        f.write(" ".join(tokens) + "\n")
