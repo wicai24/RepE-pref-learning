@@ -109,7 +109,6 @@ def embeddings_to_tokens(prefix_embeds, model, tokenizer, top_k=1):
         tokens_list.append(tokens)
     return tokens_list
 
-# Prepare lists to collect tokens
 pos_tokens_all = []
 neg_tokens_all = []
 
@@ -131,7 +130,7 @@ for idx, data_point in enumerate(top_300_data):
         tokens_neg_flat = [token[0] for token in tokens_neg]
         neg_tokens_all.append(tokens_neg_flat)
 
-# Save all tokens into one file
+# Save all tokens
 output_dir = "prefix_outputs"
 os.makedirs(output_dir, exist_ok=True)
 
